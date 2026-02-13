@@ -1,0 +1,8 @@
+[package]
+name = "VaultCore"
+version = "1.0.0"
+authors = ["ResearchTeam <dev@colya.io>"]
+
+[dependencies]
+IdentityLib = { version = "2.1.0", integrity = "sha256:..." }
+
