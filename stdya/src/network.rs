@@ -41,12 +41,28 @@ pub fn start_listener(port: &str, identity: &NodeIdentity) -> io::Result<()> {
     Ok(())
 }
 
-pub fn send_handshake(target_port: &str, msg_content: &str) {
+pub fn send_handshake(target_port: &str, msg_content: &str) -> Option<String> {
+
     let address = format!("127.0.0.1:{}", target_port);
     if let Ok(mut stream) = TcpStream::connect(address) {
         let _ = stream.write_all(msg_content.as_bytes());
         let _ = stream.flush();
         io::stdout().flush().unwrap();
+     
+        let mut buffer = [0; 512];
+        if let Ok(n) = stream.read(&mut buffer) {
+            let response = String::from_utf8_lossy(&buffer[..n]);
+            return Some(response.to_string());
+
+
+
+        }
+
     }
+
+    None
+
 }
 
+
+    

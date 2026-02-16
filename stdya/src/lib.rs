@@ -2,7 +2,7 @@ pub mod math;
 pub mod traits;
 pub mod crypto;
 pub mod network;
-
+pub mod aggregator;
 
 
 pub const GREEN: &str = "\x1b[32m";
