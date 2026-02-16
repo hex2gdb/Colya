@@ -1,1 +1,1 @@
-/home/adil_wad/colya/stdya/target/release/stdya: /home/adil_wad/colya/stdya/src/crypto.rs /home/adil_wad/colya/stdya/src/lib.rs /home/adil_wad/colya/stdya/src/main.rs /home/adil_wad/colya/stdya/src/math.rs /home/adil_wad/colya/stdya/src/traits.rs
+/home/adil_wad/colya/stdya/target/release/stdya: /home/adil_wad/colya/stdya/src/crypto.rs /home/adil_wad/colya/stdya/src/lib.rs /home/adil_wad/colya/stdya/src/main.rs /home/adil_wad/colya/stdya/src/math.rs /home/adil_wad/colya/stdya/src/network.rs /home/adil_wad/colya/stdya/src/traits.rs

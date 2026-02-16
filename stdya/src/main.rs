@@ -1,12 +1,21 @@
-use stdya; // Imports your library logic
+use std::env;
+use stdya::{GREEN, BLUE, BOLD, RESET, YELLOW};
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    
-    if args.len() > 1 && args[1] == "--version" {
-        println!("Colya Standard Library (stdya) v{}", stdya::version());
-    } else {
-        println!("Colya CMT: Use --version or compile a .ya file.");
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() >= 5 {
+        let port = &args[2];
+        let id = &args[4];
+        
+        println!("{}[Node {}]{} {}Initializing S-BFT on port {}...{}", 
+            BOLD, id, RESET, BLUE, port, RESET);
+        
+        println!("{}[*] S-BFT Core:{} {}ONLINE{}", 
+            YELLOW, RESET, GREEN, RESET);
+
+        // Call the listener
+        let _ = stdya::network::start_listener(port);
     }
 }
 
