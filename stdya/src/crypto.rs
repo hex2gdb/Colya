@@ -2,6 +2,7 @@ use ed25519_dalek::{SigningKey, Signer};
 
 pub struct NodeIdentity {
     pub key: SigningKey,
+    pub id: i32,
 }
 
 impl NodeIdentity {

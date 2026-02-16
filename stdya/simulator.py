@@ -1,35 +1,39 @@
 import subprocess
+import os
+import fcntl
 import time
 
+# Force unbuffered environment
+os.environ["PYTHONUNBUFFERED"] = "1"
 
-# Updated simulator.py with colors
-CYAN = "\033[96m"
-MAGENTA = "\033[95m"
-END = "\033[0m"
+def set_nonblocking(fd):
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
-def start_node(node_id, port):
-    print(f"{CYAN}[*] Launching Node {node_id} on port {port}...{END}")
-    return subprocess.Popen(["./target/debug/stdya", "--port", str(port), "--id", str(node_id)])
-
-# ... rest of your code ...
-print(f"{MAGENTA}[+] Network Active. Testing S-BFT Handshake...{END}")
-
-
-
-def start_node(node_id, port):
-    # This calls your native Rust binary
-    print(f"[*] Launching Node {node_id} on port {port}...")
-    return subprocess.Popen(["./target/release/stdya", "--port", str(port), "--id", str(node_id)])
-
-# Simulation: 4 Nodes (3 Honest, 1 Malicious/Offline)
-nodes = []
+procs = []
 for i in range(1, 5):
-    nodes.append(start_node(i, 5000 + i))
+    p = subprocess.Popen(
+        ["./target/release/stdya", "--port", str(5000+i), "--id", str(i)],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    set_nonblocking(p.stdout)
+    procs.append(p)
 
-time.sleep(2)
-print("[+] Network Active. Testing S-BFT Handshake...")
+print("\033[95m[+] S-BFT Quorum Online. Streaming live logs...\033[0m")
 
-# Cleanup
-for n in nodes:
-    n.terminate()
+start_time = time.time()
+while time.time() - start_time < 30:
+    for i, p in enumerate(procs):
+        try:
+            line = p.stdout.readline()
+            if line:
+                print(f"Node {i+1}: {line.strip()}")
+        except EOFError:
+            pass
+        except Exception:
+            pass
+    time.sleep(0.1) # Small sleep to prevent 100% CPU usage
+
+for p in procs:
+    p.terminate()
 
