@@ -1,8 +1,8 @@
 # 🛡️ stdya-blockchain
 A high-performance, deterministic consensus engine built in Rust.
 
-[![License: MIT](https://img.shields.io)](https://opensource.org)
-[![Rust](https://img.shields.io)](https://www.rust-lang.org)
+License: MIT https://opensource.org
+Rust https://www.rust-lang.org
 
 ## 📖 Overview
 `stdya-blockchain` is a lightweight [Byzantine Fault Tolerant (BFT)](https://github.com) consensus engine. It focuses on 'determinism' and 'safety', specifically avoiding floating-point arithmetic to ensure consistent state across all network nodes.
