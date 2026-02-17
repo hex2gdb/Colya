@@ -1,6 +1,6 @@
 use std::env;
 use std::io::{self, Write};
-use stdya::{GREEN, BOLD, RESET, YELLOW, BLUE};
+use stdya::{GREEN, BOLD, RESET, YELLOW, BLUE, RED}; // Added RED for security logs
 use stdya::crypto::NodeIdentity;
 use ed25519_dalek::SigningKey;
 use stdya::aggregator::QuorumCertificate;
@@ -28,7 +28,7 @@ fn main() {
         println!("{}[Node {}]{} Starting on port {}...", BOLD, id_str, RESET, port_str);
         io::stdout().flush().unwrap();
 
-        // 1. Background Listener
+        // 1. Start Listener
         let lp = port_str.clone();
         let listener_identity = NodeIdentity { 
             key: SigningKey::from_bytes(&seed_fixed),
@@ -38,7 +38,7 @@ fn main() {
             let _ = stdya::network::start_listener(&lp, &listener_identity);
         });
 
-        // 2. CONSENSUS PHASE (Node 1 only)
+        // 2. CONSENSUS & BYZANTINE DETECTION (Node 1 only)
         if id_str.trim() == "1" {
             println!("{}  [!] Node 1: Identity Verified. Collecting Quorum in 7s...{}", GREEN, RESET);
             io::stdout().flush().unwrap();
@@ -46,17 +46,28 @@ fn main() {
 
             let mut qc = QuorumCertificate::new("BLOCK_001");
             
-            // Collect signatures from peers
             for peer_port in ["5002", "5003", "5004"] {
                 println!("{}[*] Requesting signature from {}...{}", BLUE, peer_port, RESET);
                 io::stdout().flush().unwrap();
 
                 if let Some(sig_msg) = stdya::network::send_handshake(peer_port, "PROPOSE_BLOCK") {
-                    let peer_id: i32 = peer_port.parse().unwrap_or(0);
-                    if qc.add_signature(peer_id) {
-                        println!("{}\n[!!!] 2f+1 QUORUM REACHED: Block 001 Finalized!{}\n", GREEN, RESET);
+                    // --- BYZANTINE SECURITY CHECK ---
+                    if sig_msg.contains("MALICIOUS") {
+                        println!("{}[Security] REJECTED: Byzantine behavior detected from port {}!{}", RED, peer_port, RESET);
                         io::stdout().flush().unwrap();
-                        break; 
+                    } else {
+                        let peer_id_num: i32 = peer_port.parse().unwrap_or(0);
+                        if qc.add_signature(peer_id_num) {
+                            println!("{}\n[!!!] 2f+1 QUORUM REACHED: Block 001 Finalized!{}", GREEN, RESET);
+                            
+                            // Save to genesis.json
+                            let file = std::fs::File::create("genesis.json").expect("Unable to create file");
+                            serde_json::to_writer_pretty(file, &qc).expect("Serialization failed");
+                            
+                            println!("{}[Explorer] Genesis Block saved to genesis.json!{}\n", YELLOW, RESET);
+                            io::stdout().flush().unwrap();
+                            break; 
+                        }
                     }
                 }
             }

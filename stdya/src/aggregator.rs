@@ -1,6 +1,7 @@
 use std::collections::HashSet;
-use crate::crypto::NodeIdentity;
+use serde::{Serialize, Deserialize};
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct QuorumCertificate {
     pub msg_hash: String,
     pub signers: HashSet<i32>,
