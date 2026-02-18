@@ -1,4 +1,4 @@
-use ed25519_dalek::{SigningKey, Signer};
+use ed25519_dalek::{Signer, SigningKey};
 
 pub struct NodeIdentity {
     pub key: SigningKey,
@@ -12,4 +12,3 @@ impl NodeIdentity {
         self.key.sign(&msg).to_bytes()
     }
 }
-

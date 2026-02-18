@@ -4,4 +4,3 @@ pub trait ColyaResource {
     // Consumes self: The variable is GONE after this call
     fn move_resource(self, to: String) -> Self;
 }
-

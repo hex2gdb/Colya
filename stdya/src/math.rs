@@ -12,4 +12,3 @@ impl CheckedBalance for u128 {
         self.checked_sub(amount)
     }
 }
-
