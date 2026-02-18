@@ -4,6 +4,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use stdya::aggregator::QuorumCertificate;
 use stdya::crypto::NodeIdentity;
+use stdya::mempool::Mempool;
 use stdya::state::{PersistentLedger, Transaction}; // Updated to PersistentLedger
 use stdya::{BLUE, BOLD, GREEN, RED, RESET, YELLOW};
 
@@ -35,6 +36,28 @@ async fn main() {
             key: SigningKey::from_bytes(&seed_fixed),
             id: id_num,
         };
+
+        let mempool = Arc::new(Mutex::new(Mempool::new(1000)));
+
+        // ... inside the Leader's consensus logic ...
+        if quorum_reached {
+            let mut p_ledger = ledger.lock().unwrap();
+            let mut pool = mempool.lock().unwrap();
+
+            // Pull actual transactions from the pool
+            let tx_batch = pool.get_batch(10);
+
+            if !tx_batch.is_empty() {
+                p_ledger.apply_and_persist(tx_batch);
+                println!(
+                    "{}[Mempool]{} Processed {} transactions into Block {}",
+                    GREEN,
+                    RESET,
+                    tx_batch.len(),
+                    p_ledger.state.block_height
+                );
+            }
+        }
 
         // 3. Initialize Persistent Shared State
         let qc = Arc::new(Mutex::new(QuorumCertificate::new("BLOCK_001")));

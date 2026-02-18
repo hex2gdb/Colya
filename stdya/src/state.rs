@@ -2,11 +2,14 @@ use rocksdb::{DB, Options};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// 1. Merged Transaction struct (Removed the duplicate)
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Transaction {
     pub sender: String,
-    receiver: String,
-    amount: u128,
+    pub receiver: String,
+    pub amount: u128,
+    pub nonce: u64,
+    pub signature: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -17,7 +20,7 @@ pub struct LedgerState {
 
 pub struct PersistentLedger {
     pub state: LedgerState,
-    db: DB, // RocksDB instance for persistence
+    db: DB,
 }
 
 impl PersistentLedger {
@@ -26,10 +29,11 @@ impl PersistentLedger {
         opts.create_if_missing(true);
         let db = DB::open(&opts, db_path).expect("Failed to open RocksDB");
 
-        // Attempt recovery: Check if "LATEST_STATE" exists in DB
-        let state = match db.get(b"LATEST_STATE").unwrap() {
-            Some(data) => serde_json::from_slice(&data).expect("Recovery failed"),
-            None => LedgerState::init_default(),
+        // 2. Fixed Recovery: db.get() returns Result<Option<Vec<u8>>, E>
+        let state = match db.get(b"LATEST_STATE") {
+            Ok(Some(data)) => serde_json::from_slice(&data).expect("Recovery failed"),
+            Ok(None) => LedgerState::init_default(),
+            Err(e) => panic!("DB error during recovery: {}", e),
         };
 
         Self { state, db }
@@ -38,15 +42,13 @@ impl PersistentLedger {
     pub fn apply_and_persist(&mut self, txs: Vec<Transaction>) {
         self.state.apply_block(txs);
 
-        // Write-Ahead Log (WAL) equivalent: Persist state to disk
         let serialized = serde_json::to_vec(&self.state).unwrap();
         self.db
-            .put(b"LATEST_STATE", serialized)
+            .put(b"LATEST_STATE", &serialized) // Pass as reference
             .expect("Disk write failed");
 
-        // Also log individual blocks for auditing
         self.db
-            .put(self.state.block_height.to_be_bytes(), serialized)
+            .put(self.state.block_height.to_be_bytes(), &serialized)
             .ok();
     }
 }

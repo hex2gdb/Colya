@@ -1,35 +1,53 @@
 import socket
 import struct
+import time
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-def send_signed_vote(target_port, node_id, block_hash="BLOCK_001"):
-    # 1. Generate Ed25519 keys
+def create_tx_payload(node_id, sender, receiver, amount, nonce):
+    """Packs a transaction into the 100-byte BFT protocol format."""
+    # 1. Generate keys for the sender
     private_key = ed25519.Ed25519PrivateKey.generate()
-    public_key_obj = private_key.public_key()
-    
-    # FIX: Use standard serialization for raw bytes
-    public_key_bytes = public_key_obj.public_bytes(
+    public_key_bytes = private_key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw
     )
     
-    # 2. Sign the message (returns 64 bytes)
-    signature = private_key.sign(block_hash.encode())
+    # 2. Sign a message representing the transaction
+    tx_msg = f"{sender}->{receiver}:{amount}:{nonce}"
+    signature = private_key.sign(tx_msg.encode())
 
-    # 3. Pack the payload: 4-byte Int (ID) + 32-byte PubKey + 64-byte Signature
-    # '!I' ensures Big Endian (Network) byte order for the ID
+    # 3. Pack: 4-byte ID + 32-byte PubKey + 64-byte Signature = 100 bytes
     payload = struct.pack('!I', node_id) + public_key_bytes + signature
+    return payload
+
+def stress_test_mempool(target_port, num_txs=10):
+    print(f"🚀 Starting Mempool Stress Test on port {target_port}...")
     
-    # 4. Send to the Rust Node
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect(("127.0.0.1", target_port))
-            s.sendall(payload)
-            print(f"✅ Sent 100-byte signed payload for Node {node_id} to port {target_port}")
-    except ConnectionRefusedError:
-        print(f"❌ Connection refused on port {target_port}. Is the Rust node running?")
+    for i in range(num_txs):
+        payload = create_tx_payload(
+            node_id=2, 
+            sender="User_A", 
+            receiver="User_B", 
+            amount=10 + i, 
+            nonce=int(time.time() * 1000) + i # Unique millisecond nonce
+        )
+        
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(2)
+                s.connect(("127.0.0.1", target_port))
+                s.sendall(payload)
+                print(f"✅ Sent TX {i+1}/{num_txs} (Nonce: ...{str(i)[-4:]})")
+            
+            # Small delay to prevent OS socket exhaustion
+            time.sleep(0.1) 
+            
+        except Exception as e:
+            print(f"❌ Failed to send TX {i}: {e}")
+            break
 
 if __name__ == "__main__":
-    send_signed_vote(5001, 2)
+    # Ensure your Rust node is running on 5001 first!
+    stress_test_mempool(5001, num_txs=20)
 
