@@ -1,6 +1,6 @@
 use std::env;
 use std::io::{self, Write};
-use stdya::{GREEN, BOLD, RESET, YELLOW, BLUE, RED}; // Added RED for security logs
+use stdya::{GREEN, BOLD, RESET, YELLOW, BLUE, RED}; 
 use stdya::crypto::NodeIdentity;
 use ed25519_dalek::SigningKey;
 use stdya::aggregator::QuorumCertificate;
@@ -20,10 +20,15 @@ fn main() {
         let bytes = seed_str.as_bytes();
         seed_fixed[..bytes.len().min(32)].copy_from_slice(&bytes[..bytes.len().min(32)]);
         
+        // FIX 1: Correctly initialize the struct before printing
         let node_identity = NodeIdentity { 
             key: SigningKey::from_bytes(&seed_fixed),
             id: id_num,
         };
+
+        // FIX 2: Moved println! outside the struct initialization
+        println!("{}[Node {}]{} Identity initialized. Public Key: {:?}", 
+            BOLD, id_str, RESET, node_identity.key.verifying_key());
 
         println!("{}[Node {}]{} Starting on port {}...", BOLD, id_str, RESET, port_str);
         io::stdout().flush().unwrap();
@@ -57,10 +62,11 @@ fn main() {
                         io::stdout().flush().unwrap();
                     } else {
                         let peer_id_num: i32 = peer_port.parse().unwrap_or(0);
+                        // Ensure your add_signature method returns a bool for quorum status
                         if qc.add_signature(peer_id_num) {
                             println!("{}\n[!!!] 2f+1 QUORUM REACHED: Block 001 Finalized!{}", GREEN, RESET);
                             
-                            // Save to genesis.json
+                            // Save to genesis.json using serde_json
                             let file = std::fs::File::create("genesis.json").expect("Unable to create file");
                             serde_json::to_writer_pretty(file, &qc).expect("Serialization failed");
                             
