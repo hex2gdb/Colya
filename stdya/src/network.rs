@@ -1,36 +1,39 @@
 use crate::aggregator::QuorumCertificate;
 use crate::crypto::NodeIdentity;
-use ed25519_dalek::{Signer, Verifier};
-use std::io::{self, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use ed25519_dalek::Signer;
 use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 
-/// Starts the BFT network listener to collect signatures and forward gossip
-pub fn start_listener(
-    port: &str,
-    identity: &NodeIdentity,
+pub async fn start_listener(
+    port: String,
+    identity: NodeIdentity, // Pass by value for async move
     qc: Arc<Mutex<QuorumCertificate>>,
-) -> io::Result<()> {
-    // Note: Use 127.0.0.1 for local binding
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
-    println!("\x1b[32m[+] S-BFT Listener online on port {}\x1b[0m", port);
-    io::stdout().flush().unwrap();
+) -> tokio::io::Result<()> {
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+    println!(
+        "\x1b[32m[+] Async BFT Listener online on port {}\x1b[0m",
+        port
+    );
 
-    for stream in listener.incoming() {
-        if let Ok(mut s) = stream {
-            let mut buffer = [0u8; 100]; // 4 (ID) + 32 (PubKey) + 64 (Sig)
+    loop {
+        let (mut socket, _) = listener.accept().await?;
+        let qc_clone = Arc::clone(&qc);
+        let identity_clone = identity.clone();
 
-            if let Ok(n) = s.read(&mut buffer) {
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 100];
+
+            if let Ok(n) = socket.read(&mut buffer).await {
                 if n >= 100 {
-                    // 1. Extract components
+                    // 1. Extract and Verify
                     let node_id = i32::from_be_bytes(buffer[0..4].try_into().unwrap());
                     let mut pub_key = [0u8; 32];
                     let mut sig = [0u8; 64];
                     pub_key.copy_from_slice(&buffer[4..36]);
                     sig.copy_from_slice(&buffer[36..100]);
 
-                    // 2. Lock the QC and verify/add the signature
-                    let mut lock = qc.lock().unwrap();
+                    let mut lock = qc_clone.lock().unwrap();
                     if lock.verify_and_add(node_id, pub_key, sig) {
                         println!(
                             "[Consensus] 2f+1 Quorum reached for block: {}!",
@@ -39,47 +42,40 @@ pub fn start_listener(
                     }
                 }
 
-                // 3. Handle Byzantine Response Logic
+                // 2. Byzantine Logic
                 let msg = String::from_utf8_lossy(&buffer[..n.min(100)])
                     .trim()
                     .to_string();
-                let response = if identity.id == 3 {
-                    println!("\x1b[31m[Byzantine] Node 3 sending MALICIOUS signature...\x1b[0m");
+                let response = if identity_clone.id == 3 {
                     "ACK_SIG:MALICIOUS_TRASH_DATA_777".to_string()
                 } else {
-                    // Sign a vote acknowledgement
-                    let signature = identity.key.sign(msg.as_bytes());
+                    let signature = identity_clone.key.sign(msg.as_bytes());
                     format!("ACK_SIG:{}", hex::encode(signature.to_bytes()))
                 };
 
-                let _ = s.write_all(response.as_bytes());
-                let _ = s.flush();
+                let _ = socket.write_all(response.as_bytes()).await;
 
-                // 4. GOSSIP RING LOGIC
+                // 3. Gossip Ring Logic (Async)
                 if msg.contains("HELLO") && !msg.contains("GOSSIP") {
-                    let my_id = identity.id;
-                    let next_id = (my_id % 4) + 1;
-                    let next_port = 5000 + next_id;
-                    let forward_msg = format!("GOSSIP_FROM_{}:{}", my_id, msg);
+                    let next_port = 5000 + (identity_clone.id % 4) + 1;
+                    let forward_msg = format!("GOSSIP_FROM_{}:{}", identity_clone.id, msg);
 
-                    std::thread::spawn(move || {
-                        send_handshake(&next_port.to_string(), &forward_msg);
+                    tokio::spawn(async move {
+                        let _ = send_handshake(&next_port.to_string(), &forward_msg).await;
                     });
                 }
             }
-        }
+        });
     }
-    Ok(())
 }
 
-pub fn send_handshake(target_port: &str, msg_content: &str) -> Option<String> {
+pub async fn send_handshake(target_port: &str, msg_content: &str) -> Option<String> {
     let address = format!("127.0.0.1:{}", target_port);
-    if let Ok(mut stream) = TcpStream::connect(address) {
-        let _ = stream.write_all(msg_content.as_bytes());
-        let _ = stream.flush();
+    if let Ok(mut stream) = TcpStream::connect(address).await {
+        let _ = stream.write_all(msg_content.as_bytes()).await;
 
         let mut buffer = [0; 512];
-        if let Ok(n) = stream.read(&mut buffer) {
+        if let Ok(n) = stream.read(&mut buffer).await {
             return Some(String::from_utf8_lossy(&buffer[..n]).to_string());
         }
     }

@@ -4,12 +4,14 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use stdya::aggregator::QuorumCertificate;
 use stdya::crypto::NodeIdentity;
+use stdya::state::{PersistentLedger, Transaction}; // Updated to PersistentLedger
 use stdya::{BLUE, BOLD, GREEN, RED, RESET, YELLOW};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // 1. Parse arguments first so we have the ID and Port available
+    // 1. Parse arguments
     let id_str = args
         .iter()
         .position(|x| x.contains("id"))
@@ -34,86 +36,69 @@ fn main() {
             id: id_num,
         };
 
-        println!(
-            "{}[Node {}]{} Identity initialized. Public Key: {:?}",
-            BOLD,
-            id_str,
-            RESET,
-            node_identity.key.verifying_key()
-        );
+        // 3. Initialize Persistent Shared State
+        let qc = Arc::new(Mutex::new(QuorumCertificate::new("BLOCK_001")));
+        // Every node gets its own local RocksDB folder based on its ID
+        let db_path = format!("./ledger_db_{}", id_str);
+        let ledger = Arc::new(Mutex::new(PersistentLedger::new(&db_path)));
+
         println!(
             "{}[Node {}]{} Starting on port {}...",
             BOLD, id_str, RESET, port_str
         );
         io::stdout().flush().unwrap();
 
-        // 3. Setup Shared Quorum Certificate
-        let qc = Arc::new(Mutex::new(QuorumCertificate::new("BLOCK_001")));
-        let qc_for_thread = Arc::clone(&qc);
-
-        // 4. Start Network Listener
-        let lp = port_str.clone();
-        let listener_identity = NodeIdentity {
-            key: SigningKey::from_bytes(&seed_fixed),
-            id: id_num,
-        };
-
-        std::thread::spawn(move || {
-            let _ = stdya::network::start_listener(&lp, &listener_identity, qc_for_thread);
+        // 4. Spawn Async Listener
+        let listener_qc = Arc::clone(&qc);
+        let listener_port = port_str.clone();
+        let listener_identity = node_identity.clone();
+        tokio::spawn(async move {
+            let _ = stdya::network::start_listener(&listener_port, &listener_identity, listener_qc)
+                .await;
         });
 
-        // 5. CONSENSUS & BYZANTINE DETECTION (Node 1 only)
-		        // 5. CONSENSUS & BYZANTINE DETECTION (Node 1 only)
+        // 5. CONSENSUS LOGIC (Leader only)
         if id_str.trim() == "1" {
-            println!(
-                "{}  [!] Node 1: Leader Active. Collecting signatures...{}",
-                GREEN, RESET
-            );
-            io::stdout().flush().unwrap();
-            
-            // Initial wait to let network stabilize
-            std::thread::sleep(std::time::Duration::from_secs(7));
+            tokio::time::sleep(tokio::time::Duration::from_secs(7)).await;
 
             for peer_port in ["5002", "5003", "5004"] {
-                // --- 1. PRE-REQUEST QUORUM CHECK ---
-                // Check if background listener already reached quorum
-                {
+                // Check if Quorum was reached via Background Listener or Previous Request
+                let quorum_reached = {
                     let lock = qc.lock().unwrap();
-                    if lock.signers.len() >= 3 {
-                        println!("{}  [Quorum] Threshold already met ({} nodes).{}", GREEN, lock.signers.len(), RESET);
-                        // Save and exit loop
-                        let file = std::fs::File::create("genesis.json").expect("Unable to create file");
-                        serde_json::to_writer_pretty(file, &*lock).expect("Serialization failed");
-                        println!("{}[Explorer] Genesis Block saved to genesis.json!{}", YELLOW, RESET);
-                        break;
-                    }
+                    lock.signers.len() >= 3
+                };
+
+                if quorum_reached {
+                    let mut p_ledger = ledger.lock().unwrap();
+                    let demo_tx = Transaction {
+                        sender: "Node_1".to_string(),
+                        receiver: "Node_2".to_string(),
+                        amount: 50,
+                    };
+
+                    // Apply to memory AND persist to RocksDB
+                    p_ledger.apply_and_persist(vec![demo_tx]);
+
+                    println!(
+                        "{}[Ledger]{} Quorum Reached! Height: {}, Node_2 Balance: {}",
+                        BLUE,
+                        RESET,
+                        p_ledger.state.block_height,
+                        p_ledger.state.balances.get("Node_2").unwrap_or(&0)
+                    );
+                    break;
                 }
 
-                println!("{}[*] Requesting signature from {}...{}", BLUE, peer_port, RESET);
-                io::stdout().flush().unwrap();
-
-                if let Some(_sig_msg) = stdya::network::send_handshake(peer_port, "PROPOSE_BLOCK") {
-                    let mut lock = qc.lock().unwrap();
-                    let peer_id: i32 = peer_port.parse().unwrap_or(0);
-
-                    if lock.add_signature(peer_id) {
-                        println!("{}\n[!!!] 2f+1 QUORUM REACHED: Block 001 Finalized!{}", GREEN, RESET);
-
-                        let file = std::fs::File::create("genesis.json").expect("Unable to create file");
-                        serde_json::to_writer_pretty(file, &*lock).expect("Serialization failed");
-
-                        println!("{}[Explorer] Genesis Block saved to genesis.json!{}\n", YELLOW, RESET);
-                        io::stdout().flush().unwrap();
-                        break;
-                    }
-                }
+                println!(
+                    "{}[*] Requesting signature from {}...{}",
+                    BLUE, peer_port, RESET
+                );
+                let _ = stdya::network::send_handshake(peer_port, "PROPOSE_BLOCK").await;
             }
         }
 
-        // Keep node alive
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(10));
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         }
-    } // Closes if args.len() >= 3
-} // Closes main
-
+    }
+}
